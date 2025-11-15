@@ -34,9 +34,9 @@ export default function AppLauncher() {
   const handleLogout = () => {
     // Clear session cache on logout
     if (typeof window !== 'undefined' && window.sessionStorage) {
-      const userId = user?.id || user?.userId || user?.sub;
-      if (userId) {
-        const cacheKey = `assignedApps_${userId}`;
+      const tenantId = user?.tenantId;
+      if (tenantId) {
+        const cacheKey = `assignedApps_${tenantId}`;
         try {
           sessionStorage.removeItem(cacheKey);
         } catch (e) {
@@ -87,9 +87,17 @@ export default function AppLauncher() {
         return; // Wait for app config to load first or user to be authenticated
       }
 
+      // Get tenantId from user object (from JWT token)
+      const tenantId = user?.tenantId;
+      
+      if (!tenantId) {
+        setError('Tenant ID not available. Please sign in again.');
+        setIsLoading(false);
+        return;
+      }
+
       // Check sessionStorage for cached assigned apps
-      const userId = user?.id || user?.userId || user?.sub;
-      const cacheKey = `assignedApps_${userId}`;
+      const cacheKey = `assignedApps_${tenantId}`;
       
       // Check if sessionStorage is available (client-side only)
       if (typeof window !== 'undefined' && window.sessionStorage) {
@@ -118,10 +126,8 @@ export default function AppLauncher() {
         setIsLoading(true);
         setError(null);
         
-        // Pass userId as query param if available, as fallback
-        const url = userId 
-          ? `/api/frontegg/user-apps?userId=${encodeURIComponent(userId)}`
-          : '/api/frontegg/user-apps';
+        // Pass tenantId as query param
+        const url = `/api/frontegg/user-apps?tenantId=${encodeURIComponent(tenantId)}`;
         
         const response = await fetch(url);
         
@@ -151,7 +157,7 @@ export default function AppLauncher() {
           .filter((id): id is AppId => id !== undefined);
         
         // Cache the assigned app IDs in sessionStorage
-        if (userId && typeof window !== 'undefined' && window.sessionStorage) {
+        if (tenantId && typeof window !== 'undefined' && window.sessionStorage) {
           try {
             sessionStorage.setItem(cacheKey, JSON.stringify(mappedAppIds));
           } catch (e) {

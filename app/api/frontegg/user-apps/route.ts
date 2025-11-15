@@ -21,12 +21,12 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Get userId from query params (preferred method since cookie is encrypted)
-    const userId = request.nextUrl.searchParams.get('userId');
+    // Get tenantId from query params (extracted from user's JWT token on client side)
+    const tenantId = request.nextUrl.searchParams.get('tenantId');
     
-    if (!userId) {
+    if (!tenantId) {
       return NextResponse.json(
-        { error: 'User ID is required. Please ensure userId is provided in the request.' },
+        { error: 'Tenant ID is required. Please ensure tenantId is provided in the request.' },
         { status: 400 }
       );
     }
@@ -49,13 +49,14 @@ export async function GET(request: NextRequest) {
 
     const { token: vendorToken } = await vendorTokenResponse.json();
 
-    // Get user applications from Frontegg
+    // Get user applications from Frontegg using tenant assignments endpoint
     const appsResponse = await fetch(
-      `https://api.frontegg.com/identity/resources/applications/v1/${userId}/apps`,
+      'https://api.frontegg.com/applications/resources/applications/tenant-assignments/v1',
       {
         method: 'GET',
         headers: {
-          Authorization: `Bearer ${vendorToken}`,
+          'Authorization': `Bearer ${vendorToken}`,
+          'frontegg-tenant-id': tenantId,
         },
       }
     );
@@ -106,53 +107,27 @@ export async function GET(request: NextRequest) {
     }
     
     // Extract appIds from the response
-    // The response structure may vary, so we handle different formats
+    // Response format: [{ tenantId: "...", appIds: [...] }]
     let appIds: string[] = [];
     
     try {
-      if (Array.isArray(appsData)) {
-        // If response is directly an array
-        appIds = appsData
-          .map((app: any) => {
-            // Handle different possible structures
-            if (typeof app === 'string') return app;
-            if (typeof app === 'object' && app !== null) {
-              return app?.appId || app?.id || app?.applicationId || app?.application?.id;
-            }
-            return null;
-          })
-          .filter((id: any): id is string => id != null && typeof id === 'string');
-      } else if (appsData.apps && Array.isArray(appsData.apps)) {
-        // If response has an 'apps' property that is an array
-        appIds = appsData.apps
-          .map((app: any) => {
-            if (typeof app === 'string') return app;
-            if (typeof app === 'object' && app !== null) {
-              return app?.appId || app?.id || app?.applicationId || app?.application?.id;
-            }
-            return null;
-          })
-          .filter((id: any): id is string => id != null && typeof id === 'string');
-      } else if (appsData.data && Array.isArray(appsData.data)) {
-        // If response has a 'data' property that is an array
-        appIds = appsData.data
-          .map((app: any) => {
-            if (typeof app === 'string') return app;
-            if (typeof app === 'object' && app !== null) {
-              return app?.appId || app?.id || app?.applicationId || app?.application?.id;
-            }
-            return null;
-          })
-          .filter((id: any): id is string => id != null && typeof id === 'string');
-      } else if (appsData.appId) {
-        // If response is a single app object
-        appIds = [appsData.appId];
-      } else if (appsData.id) {
-        // If response has an id property
-        appIds = [appsData.id];
-      } else if (appsData.applicationId) {
-        // If response has an applicationId property
-        appIds = [appsData.applicationId];
+      if (Array.isArray(appsData) && appsData.length > 0) {
+        // Response is an array of tenant assignment objects
+        // Find the assignment for the requested tenantId (should be the first one, but check to be safe)
+        const tenantAssignment = appsData.find((assignment: any) => 
+          assignment?.tenantId === tenantId
+        ) || appsData[0]; // Fallback to first item if not found
+        
+        if (tenantAssignment?.appIds && Array.isArray(tenantAssignment.appIds)) {
+          appIds = tenantAssignment.appIds.filter((id: any): id is string => 
+            id != null && typeof id === 'string'
+          );
+        }
+      } else if (appsData?.appIds && Array.isArray(appsData.appIds)) {
+        // Handle case where response might be a single object
+        appIds = appsData.appIds.filter((id: any): id is string => 
+          id != null && typeof id === 'string'
+        );
       }
     } catch (parseError) {
       console.error('Error parsing appIds from response:', parseError);
